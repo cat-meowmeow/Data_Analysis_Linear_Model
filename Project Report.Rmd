@@ -1,0 +1,175 @@
+---
+title: "Data Analysis for Students' Portuguese Grades Project Report"
+author: "xinyuan chen"
+date: "12/1/2021"
+output: pdf_document
+---
+\section{Abstract}
+This data was collected by school reports and questionnaires which approached student achievements in secondary education of two Portuguese schools. Their Portuguese language course's final grades are shown in column G3. This project examines what features could be important predictors of their final grades. I choose OLS linear models and make model selections. 
+
+As a result, I found that in these two schools, these students' self wishes to take higher education, and their numbers of school absences could influence the final grade very much. And, their study environment could also influence grades, especially their mother's education level and whether they pay extra educational support. And finally, female students do significantly better than males and weekend alcohol consumption could influence the grades.
+
+
+\newpage
+\section{Summary of methods section}
+The first I do is to find the relationship between G3 and G1, G2. This is a multiply regression shown G3 has a strong correlation with G1, G2. By doing this, we can find some outliers that their final grades are zero. Even some of them their G1 or G2 are not zero, I think we can delete these poor unlucky students because maybe some mystery reasons lead to it.
+
+The second part is to check whether the past failures could lead to their present final grades. The answer is yes. This is a simple OLS regression. More failures in the past tend to get lower grades present.
+
+The third part is doing model selection for other regressors. There are too many regressors and factors so that I decided to use Forward Selection. I decided to divide the total data into train set sample and test set sample. Get the model from the train set and predict it on the test set. Also, test this model on the total data set and find outliers. Finally, do the heteroskedasticity test, normality test, and collinearity test. The result is the model seems to fit the data well. R-squared is 0.971.
+
+\newpage
+\section{Data Analysis}
+```{r,warning=FALSE}
+library(ISLR2)
+library(leaps)
+library(alr4)
+student_por = read.csv(file="student-por.csv",sep = ";")
+factor_id = c("school","sex","address","famsize","Pstatus","Mjob","Fjob","reason","guardian","traveltime","studytime","schoolsup","famsup","paid","activities","nursery","higher","internet","romantic")
+student_por[,factor_id] <- lapply(student_por[,factor_id],factor)
+```
+
+#    The relation between G1,G2 and G3
+```{r}
+lm_1 <- lm(G3~G1+G2,data=student_por)
+summary(lm_1)
+plot(lm_1,1)
+outlierTest(lm_1)
+```
+The coefficient is 0.14890 and 0.89714, the intercept is -0.17.
+It seems that 10%G1 and 90%G2 and other little grades compose the final grade, G3.
+
+For these 15 students who got 0 in G2 or G3, (some even got G1 and G2), but still zero points, just delete these unlucky students. 
+
+##   New data
+```{r}
+student_por <- student_por[-c(164,441,520,564,568,583,587,584,598,604,606,611,627,638,640,641,173),]
+```
+
+## Test outliners again in G3
+```{r}
+lm_2 <- lm(G3 ~ G1+G2,data = student_por)
+outlierTest(lm_2)
+```
+Student 62,63,280's G3 score is also very strange, they didn't match G1 and G2. It is very hard to imagine they got higher  6 points or lower 4 points than other students should got.
+Unreasonable. Just delete them.
+
+```{r}
+student_por <- student_por[-c(62,63,280),]
+```
+
+
+#  How does the past failures contribute to the final grade?
+I notice that the failure column seems has a strong correlation with the grades. Check it.
+```{r}
+# Simple Linear Regression
+lm_failure <- lm(G3~ failures,student_por)
+summary(lm_failure)
+plot(allEffects(lm_failure))
+plot(lm_failure,1)
+```
+From the summary, we can see that students who got zero failure in the past tend to get a higher score in the final test, almost 12 points. The coefficient of failure is -1.77, which means other students, if failure 1 more time, their score tend to lower 2 points than those who did not fail this time. The "Failures" has a strong influence on the "Final Score". 
+
+Using "failure" could better predict the final grades, however, we are not here to predict the final grades. This is a questionnaire that focuses on students' grades and their study environments. I think we want is to find the relations between students' features and their final grades. So I delete the "failures" column, just focus on other regressors.
+
+
+#  What would influence the final grade G3 ?
+
+##    Build Train.set and Test.set
+```{r}
+set.seed(1234)
+train = sample(1:dim(student_por)[1], dim(student_por)[1] / 2)
+test <- -train
+student_por.train <- student_por[train, ]
+student_por.test <- student_por[test, ]
+```
+## Model Selection
+```{r}
+#Forward Selection
+m0 = lm(G3 ~0-G1-G2-failures, student_por.train)
+m1 = lm(G3 ~.-G1-G2-failures, student_por.train)
+A = step(object = m0, scope = list(lower=m0, upper=m1), direction = "forward", trace = F)
+#B = step(object = m1, scope = list(lower=m0, upper=m1), direction = "backward", trace = F)
+A # A B are same
+```
+we could include these regressors in OLS model:
+G3 ~ school + higher + absences + schoolsup + Walc + Medu + sex + paid + reason + studytime + activities - 1
+
+## OLS linear model in Train
+```{r}
+lm_G3 <- lm(G3 ~ school + higher + absences + schoolsup + Walc + 
+    Medu + sex + paid + reason + studytime + activities - 1, data = student_por.train)
+summary(lm_G3)
+
+# checking for collinearity
+vif(lm_G3) # No collinearity
+
+# check resudual plots
+residualPlots(lm_G3)
+plot(lm_G3,1) # seems a null plot, no signficant patten, unbiased and homoscedastic
+             #  the outliner seems including student 348
+
+plot(allEffects(lm_G3))
+
+# heteroskedasticity test:
+ncvTest(lm_G3)# p is significant,implying that the variance is non-constant#
+
+influenceIndexPlot(lm_G3) # seems no strong influence point, no high leveage point.
+outlierTest(lm_G3)#348,(550) 
+
+# Normality test
+qqPlot(lm_G3) #seems good
+
+#cor(model.matrix(G3 ~ school + higher + absences + schoolsup + Walc + Medu + sex + paid + reason + studytime + activities - 1, data = student_por.train))
+```
+The vif test shows no collinearity. The residual plot seems a null plot, but ncvtest implies that the variance is non-constant. The outlier is 348,550. However, this is just a sample from the total students' data set, whether they are outliers, we should check the model on the whole data set.
+
+
+## Compare the predict with Test.set
+```{r}
+pred.lm_G3 <- predict(lm_G3, student_por.test)
+mean((pred.lm_G3 - student_por.test$G3)^2)
+```
+The predicts seems ok. It means the final predicts on test about bias 2 points higher or lower on average.
+
+## Use this model on the whole original dataset:
+```{r}
+lm_G3_all <- lm(G3 ~ school + higher + absences + schoolsup + Walc + 
+    Medu + sex + paid + reason + studytime + activities - 1, data = student_por)
+compareCoefs(lm_G3, lm_G3_all, se = T)
+
+# check resudual plots
+plot(lm_G3_all,1)
+
+ncvTest(lm_G3_all) # non-constant
+
+influenceIndexPlot(lm_G3_all) # seems no strong influence point, no high leveage point.
+outlierTest(lm_G3_all) # 348, it is no reason to delete this student.
+
+# Normality test
+qqPlot(lm_G3_all)
+
+```
+From the residual plot, it seems a null plot, no significant pattern, unbiased and homoscedastic. But from the ncvTest, p is significant, implying that the variance is non-constant. It means those predicted grades are 12 tend to get a larger residual, this model is not so much perfect on predict when got 12 grades, the confident interval is about +- 2 points.
+
+The outlier is still 348, and no strong influence point, no high leverage point. Their cook distance and hat values are small.
+
+The Normality test is good. If not outlier 348, and 550, it may perform better. But unreasonable to delete these students.
+
+\newpage
+# What we conclude from this model?
+```{r}
+lm_G3_all <- lm(formula = G3 ~ school + higher + absences + schoolsup + Walc + Medu + sex + paid + reason + studytime - 1,     data = student_por)
+summary(lm_G3_all)
+```
+First,  in those school-related features, we know school of GP tends to get a higher score than School MS, but in fact, they may have different score standards. These students' reason to choose school also significant on alpha = 0.01, those who choose school due to the "reputation" tend to get higher. So one of these schools may really do better than the other one, and deserve its reputation.
+
+Second, in those school-related questionnaires, the students' self wishes to take higher education could influence the final grade very much. The wishes to receive education higher 1 point, the grade tend to get higher 2 points. And also, weekend alcohol consumption could influence the grades. The more drink every week, the fewer grades. I do not know why these teenagers under 21 could drink, any way, it could affect the final grade significantly.
+
+Third, in those school reports, students' numbers of school absences influence the final grade significantly. The fewer absences, the higher grade.  However, the "studytime" is not so much significant, which means not so much difference between the studytime is 5 - 10 and those 10+ hours. But study 5-10 hours perform well than those less than 2 hours, about 1 point score higher than them (if fit other values to an arbitrary value).
+
+Fourth, in these students' demographic and environmental factors, their mother's education level and whether they pay extra educational support could influence the grade. And, female students do significantly better than males.
+
+Fifth, in other factors, they are not so significant. For example, the activities may influence some students. In the train set, it is a little significant, but in the whole data set, it is not. So I exclude activities in the final model. Other factors, like romance, health, travel time, father's job, no evidence that they could influence the final grades.
+
+R-squared is 0.969, it is very close to 1, means almost 97% of the variation in grades is explained by this model.
